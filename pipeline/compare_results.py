@@ -84,21 +84,22 @@ def load_bismark_methylation(filename):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="methyl-fastq")
 
-    parser.add_argument("--gold", dest="gold_file", metavar="cg_gold_file", action="store",
+    parser.add_argument("--gold", dest="gold_file", metavar="cg_gold_file", action="store", required=True,
                         type=str, help=".bed for real data or .ch3 for synthetic data")
     # parser.add_argument("--ch3", dest="ch3_file", metavar="ch_gold_file.ch3", action="store";
     #                     type=str, help="")
-    parser.add_argument("--bsmap"; dest="bsmap_file", metavar="methratio_output_file",
+    parser.add_argument("--bsmap", dest="bsmap_file", metavar="methratio_output_file", required=True,
                         action="store", type=str, help="")
-    parser.add_argument("--bismark"; dest="bismark_file", metavar="bismark_methylation_extractor_output_file",
+    parser.add_argument("--bismark", dest="bismark_file", metavar="bismark_methylation_extractor_output_file", required=True,
                         action="store", type=str, help="")
-    parser.add_argument("--log", dest="logfile", metavar="log file", action="store", type=str, help="")
+    parser.add_argument("--log", dest="logfile", metavar="log file", action="store", required=True, type=str, help="")
 
+    args = parser.parse_args()
 
-    logfile = open(parser.logfile, "w")
+    logfile = open(args.logfile, "w")
 
-    logfile.write("Reading CpG file {}...\n".format(parser.gold_file))
-    cpg_gold = load_gold_file(parser.gold_file)
+    logfile.write("Reading CpG file {}...\n".format(args.gold_file))
+    cpg_gold = load_gold_file(args.gold_file)
 
 
     # #legge file .ch3
@@ -109,8 +110,8 @@ if __name__ == "__main__":
     #             cytosine = (row[0], int(row[1]) + 1)
     #             cpg_map.add(cytosine)
 
-    logfile.write("Analysing methratio file {}...\n".format(parser.bsmap_file))
-    bsmap_map = load_bsmap_methylation(parser.bsmap_file)
+    logfile.write("Analysing methratio file {}...\n".format(args.bsmap_file))
+    bsmap_map = load_bsmap_methylation(args.bsmap_file)
 
     #legge output methratio
     # with open(methratio_output) as handle:
@@ -127,8 +128,8 @@ if __name__ == "__main__":
     tp_bsmap, bsmap_confusion_matrix = compare(cpg_map, bsmap_map)
     print_confusion_matrix(logfile, "bsmap", bsmap_confusion_matrix)
 
-    logfile.write("Analysing bismark methylation file {}...\n".format(parser.bismark_file))
-    bismark_map = load_bismark_methylation(parser.bismark_file)
+    logfile.write("Analysing bismark methylation file {}...\n".format(args.bismark_file))
+    bismark_map = load_bismark_methylation(args.bismark_file)
 
 
     #legge output bismark.methylation_extractor - file .Cpg_report.txt
