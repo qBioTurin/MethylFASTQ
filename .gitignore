@@ -1,0 +1,12 @@
+# Compiled source #
+###################
+*.pyc
+src/__pycache__
+
+# Testing data #
+################
+data/
+
+# OS generated files #
+######################
+.DS_Store
