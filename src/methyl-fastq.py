@@ -17,7 +17,7 @@ from seqparams import SeqParams
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="MethylSeq")
+    parser = argparse.ArgumentParser(description="methyl-fastq")
 
     parser.add_argument("--in", dest="fasta_file", metavar="fasta-file",
                         action="store", type=str, required=True,

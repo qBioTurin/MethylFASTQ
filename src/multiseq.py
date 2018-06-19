@@ -26,6 +26,9 @@ class CytosineContext(enum.Enum):
     CHG = 2
     CHH = 3
 
+    def __str__(self):
+        return ""
+
 
 class ChromoSeq(object):
     """ Un oggetto ChromoSeq legge un cromosoma da un file FASTA e
@@ -215,19 +218,6 @@ class FragmentSeq(object):
 
             i += random.randint(1, max_step) #in media ogni base è coperta da C reads
 
-#     def __fragmentation(self):
-#         """Genera frammenti casuali della sequenza """
-#         max_step = 2*int(round(self.__seqparams.fragment_size / self.__seqparams.coverage))
-#         i = 0
-#
-#         while (i + self.__seqparams.fragment_size) < len(self.__sequence):
-#             fragment = self.__sequence[i: i + self.__seqparams.fragment_size]
-#
-#             if len(fragment) == self.__seqparams.fragment_size:
-#                 yield fragment, i, i + self.__seqparams.fragment_size
-# #                yield self.__mutate(fragment), i, i + self.__seqparams.fragment_size
-#
-#             i += random.randint(1, max_step) #in media ogni base è coperta da C reads
 
     def single_end_sequencing(self):
         """Produce le read single-end del frammento e le salva su un file fastq temporaneo"""
@@ -266,37 +256,6 @@ class FragmentSeq(object):
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
                 reads.extend([fastq_fwrc, fastq_rvrc])
-
-
-#         for (fragment, begin, end) in self.__fragmentation():
-#     #        begin_reverse = seq_length - end
-#             begin_reverse = begin + read_length #+ o - 1?
-#             #set fragment methylation
-#             bs_fragment_forward = self.__methylate(fragment, begin, end).bisulfite()
-#             bs_fragment_reverse = self.__methylate_reverse(fragment, begin, end).bisulfite()
-#             #fragment sequencing
-#             read_forward = bs_fragment_forward.single_end_sequencing(read_length).set_sequencing_errors(error_rate)
-#             read_reverse = bs_fragment_reverse.single_end_sequencing(read_length).set_sequencing_errors(error_rate)
-#     #        read_forward = bs_fragment_forward.single_end_sequencing(read_length)
-#     #        read_reverse = bs_fragment_reverse.single_end_sequencing(read_length)
-#             #store read
-#             fastq_record_forward = self.fastqize(read_forward, begin, flags=["f"])
-#             fastq_record_reverse = self.fastqize(read_reverse, begin, flags=["r"])
-# #            fastq_record_reverse = self.fastqize(read_reverse, begin_reverse, flags=["r"])
-#
-#             reads.extend([fastq_record_forward, fastq_record_reverse])
-#
-#             if not directional:
-#                 bs_fragment_forward = bs_fragment_forward.reverse_complement()
-#                 bs_fragment_reverse = bs_fragment_reverse.reverse_complement()
-#
-#                 read_forward = bs_fragment_forward.single_end_sequencing(read_length)
-#                 read_reverse = bs_fragment_reverse.single_end_sequencing(read_length)
-#
-#                 fastq_record_forward = self.fastqize(read_forward, begin, flags=["f", "rc"]) #begin + 1
-#                 fastq_record_reverse = self.fastqize(read_reverse, begin_reverse, flags=["r", "rc"]) #begin + read_length (+ 1?)
-#
-#                 reads.extend([fastq_record_forward, fastq_record_reverse])
 
             if len(reads) > self.__buffer_size:
                 self.__persist_record(reads)
@@ -346,37 +305,6 @@ class FragmentSeq(object):
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
                 reads.extend([fastq_fwrc, fastq_rvrc])
-
-        #     begin_reverse, end_reverse = seq_length - end, seq_length - begin
-        #
-        #     #apply mutation - che mi sa non è vero ...
-        # #    fragment = self.__mutate(fragment)
-        #     #set fragment methylation
-        #     bs_fragment_forward = self.__methylate(fragment, begin, end).bisulfite()
-        #     bs_fragment_reverse = self.__methylate_reverse(fragment, begin, end).bisulfite()
-        #     #fragment sequencing
-        #     read_forward = bs_fragment_forward.paired_end_sequencing(read_length).set_sequencing_errors(error_rate)
-        #     read_reverse = bs_fragment_reverse.paired_end_sequencing(read_length).set_sequencing_errors(error_rate)
-        #     #get fastq record
-        #     fastq_forward = (self.fastqize(read_forward.r1, begin, ["f"]), self.fastqize(read_forward.r2, end, ["f"]))
-        #     fastq_reverse = (self.fastqize(read_reverse.r1, begin, ["r"]), self.fastqize(read_reverse.r2, end, ["r"]))
-        #
-        # #    fastq_forward = self.fastqize(read_forward[0], begin, ["f"]), self.fastqize(read_forward[1], end, ["f"])
-        # #    fastq_reverse = self.fastqize(read_reverse[0], begin_reverse, ["r"]), self.fastqize(read_reverse[1], end_reverse, ["r"])
-        #     #store reads
-        #     reads.extend([fastq_forward, fastq_reverse])
-        #
-        #     if not directional:
-        #         bs_fragment_forward = bs_fragment_forward.reverse_complement()
-        #         bs_fragment_reverse = bs_fragment_reverse.reverse_complement()
-        #         #sequencing
-        #         read_forward = bs_fragment_forward.paired_end_sequencing(read_length)
-        #         read_reverse = bs_fragment_forward.paired_end_sequencing(read_length)
-        #         #get fastq record
-        #         fastq_forward = self.fastqize(read_forward[0], begin, ["f", "rc"]), self.fastqize(read_forward[1], end, ["f", "rc"])
-        #         fastq_reverse = self.fastqize(read_reverse[0], begin_reverse, ["r", "rc"]), self.fastqize(read_reverse[1], end_reverse, ["r", "rc"])
-        #         #store reads
-        #         reads.extend([fastq_forward, fastq_reverse])
 
             if len(reads) > self.__buffer_size:
                 self.__persist_record(reads)
@@ -429,51 +357,8 @@ class FragmentSeq(object):
                 cytosine["nmeth"] += 1
         return state
 
-    #
-    # def __methylate(self, fragment, begin, end): #new
-    #     """ Dato un frammento di DNA del forward strand, restituisce un oggetto dna.dna
-    #     con la sequenza in input, le cui citosine sono metilate casualmente in accordo alle
-    #     probabilità di metilazione del contesto."""
-    #
-    #     fragment = [self.__methylate_cytosine("+", pos) if base == 'c' else base
-    #                 for pos, base in enumerate(fragment, begin)]
-    #     return dna.dna(fragment)
-    #
-    # def __methylate_reverse(self, fragment, begin, end):
-    #     """ Dato un frammento di DNA del reverse strand, restituisce un oggetto dna.dna
-    #     con la sequenza in input, le cui citosine sono metilate casualmente in accordo alle
-    #     probabilità di metilazione del contesto."""
-    #
-    #     fragment = str(dna.dna(fragment).complement())
-    #     fragment = [self.__methylate_cytosine("-", pos) if base == 'c' else base
-    #                 for pos, base in enumerate(fragment, begin)]
-    #     return dna.dna(fragment).reverse()
-
-    # def __methylate_cytosine(self, strand, position):
-    #     """Metila la citosina in posizione <position> sullo strand specificato.
-    #     La probabilità di metilazione della citosina dipende dal contesto in cui la citosina
-    #     è situata"""
-    #
-    #     state = 'C'
-    #     strand_dict = self.__cytosines_forward if strand == "+" else self.__cytosines_reverse
-    #
-    #     #la citosina potrebbe non essere annotata (è un errore di sequenziamento)
-    #     if position in strand_dict:
-    #         cytosine = strand_dict[position]
-    #         cytosine["ntot"] += 1
-    #
-    #         if random.uniform(0, 1) <= self.__p_meth[cytosine["context"]]:
-    #             state = 'c'
-    #             cytosine["nmeth"] += 1
-    #
-    #     return state
 
     ###################### Introduzione mutazioni ######################
-
-    # def __mutate(self, sequence):
-    #     """Introduce mutazioni alla sequenza con probabilità p"""
-    #
-    #     return [random.sample("actg", 1)[0] if random.uniform(0,1) < self.__seqparams.error_rate else nt for nt in sequence]
 
     def __set_snp(self):
         """Setta SNP random sulla reference"""
@@ -482,60 +367,6 @@ class FragmentSeq(object):
                                    for base in self.__sequence])
 
     ###################### Record fastq ######################
-
-#     def fastqize2(self, read):
-#         pos_begin = read.begin + self.__offset_forward + 1
-#         if read.strand is dna.strand.ReverseStrand:
-#             pos_begin += (self.__seqparams.fragment_size - self.__seqparams.read_length)
-#
-#         flags = "" #eheh
-#         read_id = "{}:{}:{}".format(self.__chromoId, pos_begin, flags)
-#         default_quality = "~" * self.__seqparams.read_length
-#
-#         fastq_read = "@{}\n{}\n+\n{}\n".format(read_id, read.sequence, default_quality)
-#         record = SeqIO.read(StringIO(fastq_read), "fastq-illumina")
-#         #set read quality
-#         record.letter_annotations["phred_quality"] = read.quality
-#
-#         return record
-#
-#     def fastqize(self, read, pos_begin, flags=[]):
-#         pos_begin = self.__offset_forward + 1 + pos_begin
-#         if "r" in flags:
-#             pos_begin += (self.__seqparams.fragment_size - self.__seqparams.read_length)
-#
-#         flags = ":".join(flags)
-# #        read_id = "{}:{}:{}".format(self.__chromoId, offset + pos_begin, flags)
-#         read_id = "{}:{}:{}".format(self.__chromoId, pos_begin, flags)
-#         default_quality = "~" * self.__seqparams.read_length
-#
-#         fastq_read = "@{}\n{}\n+\n{}\n".format(read_id, read.sequence, default_quality)
-#         record = SeqIO.read(StringIO(fastq_read), "fastq-illumina")
-#         #set read quality
-#         record.letter_annotations["phred_quality"] = read.quality
-#
-#         return record
-#
-#     def __fastqize(self, sequence, pos_begin, flags=[]):
-#         """Restituisce un oggetto SeqRecord contenente la sequenza in formato fastq """
-#
-# #        offset = self.__offset_forward if flags.count("f") == 1 else self.__offset_reverse
-# #        offset = self.__offset_forward + 1 #funziona per il forward
-#         pos_begin = self.__offset_forward + 1 + pos_begin
-#         if "r" in flags:
-#             pos_begin += (self.__seqparams.fragment_size - self.__seqparams.read_length)
-#
-#         flags = ":".join(flags)
-# #        read_id = "{}:{}:{}".format(self.__chromoId, offset + pos_begin, flags)
-#         read_id = "{}:{}:{}".format(self.__chromoId, pos_begin, flags)
-#         default_quality = "~" * len(sequence)
-#
-#         fastq_read = "@{}\n{}\n+\n{}\n".format(read_id, sequence, default_quality)
-#         record = SeqIO.read(StringIO(fastq_read), "fastq-illumina")
-#         #set read quality
-#         record.letter_annotations["phred_quality"] = self.__set_quality(sequence)
-#
-#         return record
 
     def __set_quality(self, sequence):
         """Genera una quality verosimile"""
