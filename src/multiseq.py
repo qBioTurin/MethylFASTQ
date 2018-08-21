@@ -37,34 +37,40 @@ class ChromoSeq(object):
     se la library è direzionale o non direzionale, la lunghezza dei frammenti
     e delle read """
 
-    def __init__(self, chromosome, meth_probs):
+    def __init__(self, chromosome, target_regions=list()):
         """Parserizza il cromosoma individuando gli intervalli da sequenziare e scartando
         i nucleotidi indefiniti (basi N)"""
 
+        chromosome_sequence = str(chromosome.seq).lower()
+
         self.__chromoId = chromosome.id
         self.__genome_size = len(chromosome.seq)
-        self.__fragments = list()
+        self.__fragments = [(chromosome_sequence[begin:end], begin, end) for (begin, end) in target_regions]
 
-        print("Parsing {} sequence... ".format(chromosome.id), end="", flush=True)
-        chromosome = str(chromosome.seq).lower()
+        if len(target_regions) == 0:
+            #WGBS option
+            print("Parsing {} sequence... ".format(chromosome.id), end="", flush=True)
+        #    chromosome = str(chromosome.seq).lower()
 
-        #get salient fragments
-        start, i = timer(), 0
+            #get salient fragments
+            start, i = timer(), 0
 
-        while i < self.__genome_size:
-            while i < self.__genome_size and chromosome[i] == 'n':
-                i += 1
-            begin = i
-            while i < self.__genome_size and chromosome[i] != 'n':
-                i += 1
+            while i < self.__genome_size:
+                while i < self.__genome_size and chromosome_sequence[i] == 'n':
+                    i += 1
+                begin = i
+                while i < self.__genome_size and chromosome_sequence[i] != 'n':
+                    i += 1
 
-            t = (chromosome[begin:i], begin, i)
-            self.__fragments.append(t)
-        else:
-            last = self.__fragments.pop()
-            if last[1] < last[2]:
-                self.__fragments.append(last)
-        print("{} fragments found in {}.".format(len(self.__fragments), format_time(timer() - start)), flush=True)
+                t = (chromosome_sequence[begin:i], begin, i)
+                self.__fragments.append(t)
+            else:
+                last = self.__fragments.pop()
+                if last[1] < last[2]:
+                    self.__fragments.append(last)
+            print("{} fragments found in {}.".format(len(self.__fragments), format_time(timer() - start)), flush=True)
+
+
 
 
     def sequencing(self, params):
@@ -87,14 +93,13 @@ class ChromoSeq(object):
 
 
     def __get_output_filename(self, params):
-        fasta = "".join(params.input_file.split("/")[-1].split(".")[:-1])
+        fasta = "".join(params.fasta_file.split("/")[-1].split(".")[:-1])
         se_pe = "se" if params.seq_mode == "single_end" else "pe"
         dir_nondir = "dir" if params.lib_mode == "directional" else "undir"
-        return "{}/{}_{}_f{}r{}_{}".format(params.output_dir, fasta, se_pe, params.fragment_size, params.read_length, dir_nondir)
+        return "{}/{}_{}_f{}r{}_{}".format(params.output_path, fasta, se_pe, params.fragment_size, params.read_length, dir_nondir)
 
     def merge_se_file(self, params):
         """ """
-
         output_filename = self.__get_output_filename(params)
         print("Writing final fastq file...", flush=True, end="")
 
@@ -108,7 +113,7 @@ class ChromoSeq(object):
                         try:
                             while True:
                                 record = pickle.load(input_file)
-                                SeqIO.write(record, out, "fastq-illumina")
+                                SeqIO.write(record, out, "fastq")
                         except EOFError:
                             print(".", flush=True, end="")
                     os.remove(input_name)
@@ -132,8 +137,8 @@ class ChromoSeq(object):
                         try:
                             while True:
                                 record = pickle.load(input_file)
-                                SeqIO.write(record[0], r1, "fastq-illumina")
-                                SeqIO.write(record[1], r2, "fastq-illumina")
+                                SeqIO.write(record[0], r1, "fastq")
+                                SeqIO.write(record[1], r2, "fastq")
                         except EOFError:
                             print(".", flush=True, end="") #done!!
                     os.remove(input_name)
@@ -193,7 +198,11 @@ class FragmentSeq(object):
         #dimensione buffer + parametri vari
         self.__buffer_size = 10**4
         self.__seqparams = seqparams
-        self.__p_meth = seqparams.p_meth
+        self.__p_meth =  {
+            CytosineContext.CG: seqparams.p_cg,
+            CytosineContext.CHG: seqparams.p_chg,
+            CytosineContext.CHH: seqparams.p_chh
+        }    #seqparams.p_meth
         #dati sulle citosine
         self.__cytosines_forward = dict()
         self.__cytosines_reverse = dict()
@@ -216,7 +225,7 @@ class FragmentSeq(object):
                 yield dna.fragment(fragment, i, i + self.__seqparams.fragment_size)\
                         .methylate(self.methylate_cytosine)
 
-            i += random.randint(1, max_step) #in media ogni base è coperta da C reads
+            i += random.randint(0, max_step) #in media ogni base è coperta da C reads
 
 
     def single_end_sequencing(self):
@@ -368,11 +377,11 @@ class FragmentSeq(object):
 
     ###################### Record fastq ######################
 
-    def __set_quality(self, sequence):
-        """Genera una quality verosimile"""
-        quality = [42] * len(sequence)
-
-        return quality
+    # def __set_quality(self, sequence):
+    #     """Genera una quality verosimile"""
+    #     quality = list(range(0, 1000))[:len(sequence)]#[42] * len(sequence)
+    #
+    #     return quality
 
     ###################### Persistenza file temporanei ######################
 
