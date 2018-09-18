@@ -11,23 +11,46 @@ import enum
 import dna
 
 
-#TODO:
-#1. il nome dei record fastq nel sequenziamento paired_end deve finire con /1 o /2
-#2.
-
-
-
 def format_time(time):
     strtime = "{:03.5f} m".format(time/60) if time >= 60 else "{:03.5f} s".format(time)
     return strtime
 
 class CytosineContext(enum.Enum):
-    CG = 1
-    CHG = 2
-    CHH = 3
+    CG = "CG"
+    CHG = "CHG"
+    CHH = "CHH"
 
     def __str__(self):
-        return ""
+        return self.value
+
+class Cytosine(object):
+    def __init__(self, strand, context=CytosineContext.CHH):
+        self.__context = context
+        self.__strand = strand
+        self.__nmeth = 0
+        self.__ncov = 0
+
+    @property
+    def context(self):
+        return self.__context
+
+    @property
+    def strand(self):
+        return self.__strand
+
+    @property
+    def nmeth(self):
+        return self.__nmeth
+
+    @property
+    def ncov(self):
+        return self.__ncov
+
+    def methylate(self):
+        self.__nmeth += 1
+
+    def covered(self):
+        self.__ncov += 1
 
 
 class ChromoSeq(object):
@@ -87,9 +110,11 @@ class ChromoSeq(object):
             p.map(seq_function, self.__fragments)
         print("Sequencing of {} completed in {}".format(self.__chromoId, format_time(timer()-start)))
 
-        merge_function(params)
-        self.merge_ch3(params)
+        num_reads = merge_function(params)
+        num_c = self.merge_ch3(params)
         print()
+
+        return num_reads, num_c
 
 
     def __get_output_filename(self, params):
@@ -101,6 +126,7 @@ class ChromoSeq(object):
     def merge_se_file(self, params):
         """ """
         output_filename = self.__get_output_filename(params)
+        num_reads = 0
         print("Writing final fastq file...", flush=True, end="")
 
         with open("{}.fastq".format(output_filename), "a") as out:
@@ -114,16 +140,20 @@ class ChromoSeq(object):
                             while True:
                                 record = pickle.load(input_file)
                                 SeqIO.write(record, out, "fastq")
+                                num_reads += 1
                         except EOFError:
                             print(".", flush=True, end="")
                     os.remove(input_name)
                 except FileNotFoundError as e:
                     pass
 
+        return num_reads
+
     def merge_pe_file(self, params):
         """Genera i file FASTQ del sequenziamento paired-end leggendo i file binari temporanei
         prodotti nello step di sequenziamento. """
 
+        num_reads = 0
         output_filename = self.__get_output_filename(params)
         print("Writing final fastq files...", flush=True, end="")
 
@@ -139,11 +169,15 @@ class ChromoSeq(object):
                                 record = pickle.load(input_file)
                                 SeqIO.write(record[0], r1, "fastq")
                                 SeqIO.write(record[1], r2, "fastq")
+
+                                num_reads += 1
                         except EOFError:
                             print(".", flush=True, end="") #done!!
                     os.remove(input_name)
                 except FileNotFoundError as e:
                     pass
+
+        return num_reads
 
     def merge_ch3(self, params):
         """Genera un unico file contenente i dati di metilazione delle citosine
@@ -152,6 +186,7 @@ class ChromoSeq(object):
 
 #        output_file = "{}.ch3".format(output_prefix)
         output_filename = self.__get_output_filename(params)
+        num_c = 0
         print("\nWriting final methylation file...", flush=True, end="")
 
         with open("{}.ch3".format(output_filename), "a") as out:
@@ -164,10 +199,12 @@ class ChromoSeq(object):
                     csvreader = csv.reader(infile, delimiter=" ")
                     for row in csvreader:
                         csvwriter.writerow(row)
+                        num_c += 1
 
                 os.remove(input_name)
                 print(".", flush=True, end="") #done!!
 
+        return num_c
 
     def single_end_reads(self, data):
         params = data["params"]
@@ -196,16 +233,17 @@ class FragmentSeq(object):
         self.__offset_forward = begin_seq
         self.__offset_reverse = gsize - end_seq
         #dimensione buffer + parametri vari
-        self.__buffer_size = 10**4
+        self.__buffer_size = seqparams.buffer_size
         self.__seqparams = seqparams
         self.__p_meth =  {
             CytosineContext.CG: seqparams.p_cg,
             CytosineContext.CHG: seqparams.p_chg,
             CytosineContext.CHH: seqparams.p_chh
-        }    #seqparams.p_meth
+        }
         #dati sulle citosine
-        self.__cytosines_forward = dict()
-        self.__cytosines_reverse = dict()
+        self.__cytosines = dict()
+
+        self.__read_quality = dna.read_quality(seqparams.read_length, seqparams.min_quality, seqparams.max_quality)
         ##############################
         self.__set_snp()
         self.__initialize_cytosines()
@@ -242,12 +280,12 @@ class FragmentSeq(object):
         for fragment in self.fragmentation():
             #metilazione?
             bsfs = fragment.forward_strand.bisulfite()
-            fastq_fw = bsfs.single_end_sequencing(read_length)\
+            fastq_fw = bsfs.single_end_sequencing(read_length, self.__read_quality)\
                         .set_sequencing_errors(error_rate)\
                         .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
             bsrs = fragment.reverse_strand.bisulfite()
-            fastq_rv = bsrs.single_end_sequencing(read_length)\
+            fastq_rv = bsrs.single_end_sequencing(read_length, self.__read_quality)\
                         .set_sequencing_errors(error_rate)\
                         .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
@@ -255,12 +293,12 @@ class FragmentSeq(object):
 
             if not directional:
                 fastq_fwrc = bsfs.reverse_complement()\
-                            .single_end_sequencing(read_length)\
+                            .single_end_sequencing(read_length, self.__read_quality)\
                             .set_sequencing_errors(error_rate)\
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
                 fastq_rvrc = bsrs.reverse_complement()\
-                            .single_end_sequencing(read_length)\
+                            .single_end_sequencing(read_length, self.__read_quality)\
                             .set_sequencing_errors(error_rate)\
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
@@ -291,12 +329,12 @@ class FragmentSeq(object):
 #        for (fragment, begin, end) in self.__fragmentation():
         for fragment in self.fragmentation():
             bsfs = fragment.forward_strand.bisulfite()
-            fastq_fw = bsfs.paired_end_sequencing(read_length)\
+            fastq_fw = bsfs.paired_end_sequencing(read_length, self.__read_quality)\
                         .set_sequencing_errors(error_rate)\
                         .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
             bsrs = fragment.reverse_strand.bisulfite()
-            fastq_rv = bsrs.paired_end_sequencing(read_length)\
+            fastq_rv = bsrs.paired_end_sequencing(read_length, self.__read_quality)\
                         .set_sequencing_errors(error_rate)\
                         .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
@@ -304,12 +342,12 @@ class FragmentSeq(object):
 
             if not directional:
                 fastq_fwrc = bsfs.reverse_complement()\
-                            .paired_end_sequencing(read_length)\
+                            .paired_end_sequencing(read_length, self.__read_quality)\
                             .set_sequencing_errors(error_rate)\
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
                 fastq_rvrc = bsrs.reverse_complement()\
-                            .paired_end_sequencing(read_length)\
+                            .paired_end_sequencing(read_length, self.__read_quality)\
                             .set_sequencing_errors(error_rate)\
                             .fastqize(self.__chromoId, fragment_size, self.__offset_forward)
 
@@ -330,7 +368,6 @@ class FragmentSeq(object):
     def __initialize_cytosines(self):
         """Parserizza il genoma e indicizza le citosine sui due strand"""
 
-#        print("Init fragment from {} to {}".format(self.__offset_forward, self.__genome_size - self.__offset_reverse), flush=True)
         limit = len(self.__sequence)
 
         for pos, base in enumerate(self.__sequence):
@@ -341,8 +378,8 @@ class FragmentSeq(object):
                     context = CytosineContext.CG
                 elif pos+2 < limit and self.__sequence[pos+2] == 'g':
                     context = CytosineContext.CHG
-                #initialize new cythosine
-                self.__cytosines_forward[pos] = {"context": context, "nmeth": 0, "ntot": 0}
+
+                self.__cytosines[pos] = Cytosine("+", context)
             #strand -
             elif base == 'g':
                 context = CytosineContext.CHH
@@ -350,20 +387,20 @@ class FragmentSeq(object):
                     context = CytosineContext.CG
                 elif pos-2 >= 0 and self.__sequence[pos-2] == "c":
                     context = CytosineContext.CHG
-                #initialize new cythosine
-                self.__cytosines_reverse[pos] = {"context": context, "nmeth": 0, "ntot": 0}
+
+                self.__cytosines[pos] = Cytosine("-", context)
 
 
     def methylate_cytosine(self, base, position):
-        strand_dict = self.__cytosines_forward if base == 'c' or base == 'C' else self.__cytosines_reverse
         state = base.upper()
-        if position in strand_dict:
-            cytosine = strand_dict[position]
-            cytosine["ntot"] += 1
+        if position in self.__cytosines:
+            cytosine = self.__cytosines[position]
+            cytosine.covered()
 
-            if random.uniform(0, 1) <= self.__p_meth[cytosine["context"]]:
+            if random.uniform(0, 1) <= self.__p_meth[cytosine.context]:
                 state = state.lower()
-                cytosine["nmeth"] += 1
+                cytosine.methylate()
+
         return state
 
 
@@ -374,14 +411,6 @@ class FragmentSeq(object):
 
         self.__sequence = "".join([random.sample("actg", 1)[0] if random.uniform(0, 1) < self.__seqparams.snp_rate else base\
                                    for base in self.__sequence])
-
-    ###################### Record fastq ######################
-
-    # def __set_quality(self, sequence):
-    #     """Genera una quality verosimile"""
-    #     quality = list(range(0, 1000))[:len(sequence)]#[42] * len(sequence)
-    #
-    #     return quality
 
     ###################### Persistenza file temporanei ######################
 
@@ -403,12 +432,7 @@ class FragmentSeq(object):
 
         with open(ch3_file, "w") as of:
             csvfile = csv.writer(of, delimiter="\t")
-            prep = [(self.__cytosines_forward, "+", self.__offset_forward),
-                    (self.__cytosines_reverse, "-", self.__offset_forward)]
-#                    (self.__cytosines_reverse, "-", -(self.__genome_size - self.__offset_forward - 1))]
 
-            for strand_content, strand, offset in prep:
-                for position, c in strand_content.items():
-                    nmeth, ntot = c["nmeth"], c["ntot"]
-                    ratio = 0 if ntot == 0 else nmeth/ntot
-                    csvfile.writerow([self.__chromoId, abs(offset + position), strand, c["context"], nmeth, ntot, ratio])
+            for position, cytosine in self.__cytosines.items():
+                ratio = 0 if cytosine.ncov == 0 else cytosine.nmeth / cytosine.ncov
+                csvfile.writerow([self.__chromoId, abs(self.__offset_forward+position), cytosine.strand, cytosine.context, cytosine.nmeth, cytosine.ncov, ratio])

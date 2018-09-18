@@ -5,6 +5,7 @@ from Bio import SeqIO
 from io import StringIO
 import random
 import enum
+from math import exp
 
 class strand(enum.Enum):
     Unspecified = 0
@@ -16,6 +17,7 @@ class strand(enum.Enum):
     BisulfiteReverseReverseComplement = 6
 
     #aggiungere metodi per fare il reverse, il complement etc e restituire il valore corretto
+    #ma anche no!
 
 
 
@@ -133,22 +135,30 @@ class single_strand_fragment(dna):
         dna_rc = super(single_strand_fragment, self).reverse_complement()
         return single_strand_fragment(dna_rc, strand=new_strand)
 
-    def single_end_sequencing(self, read_length):
-        return read(str(self)[:read_length], self.begin, self.strand)
+    def single_end_sequencing(self, read_length, quality):
+        return read(str(self)[:read_length], quality, self.begin, self.strand)
 
-    def paired_end_sequencing(self, read_length):
-        r1 = read(str(self)[:read_length], self.begin, self.strand)
-        r2 = read(str(dna(str(self)[-read_length:]).reverse_complement()), self.begin, self.strand)
+    def paired_end_sequencing(self, read_length, quality):
+        r1 = read(str(self)[:read_length], quality, self.begin, self.strand)
+        r2 = read(str(dna(str(self)[-read_length:]).reverse_complement()), quality, self.begin, self.strand)
         return paired_end_read(r1, r2)
+
+class read_quality(object):
+    def __init__(self, rlength, qmin=0, qmax=40):
+        self.__quality = [int(qmax * exp(-.5*(index/rlength)**2)) for index in range(rlength)]
+
+    @property
+    def quality(self):
+        return self.__quality
 
 
 class read(object):
-    #sequence è un cazzo di oggetto single_strand_fragment
-    def __init__(self, sequence, begin, strand=strand.Unspecified):
-        self.__sequence = dna(sequence, begin, 0)#list(sequence)
-        #best practices: magic numbers
-        self.quality = [23 + int(random.random() * 1000) % 19 for _ in sequence]
+    def __init__(self, sequence, quality, begin, strand=strand.Unspecified):
+        self.__sequence = dna(sequence, begin, 0)
         self.strand = strand #eheh
+
+        maxvar = random.randint(0,10)
+        self.quality = [q - random.randint(0, maxvar) for q in quality.quality] #
 
     @property
     def begin(self):
