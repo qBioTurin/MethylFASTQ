@@ -17,7 +17,7 @@ class strand(enum.Enum):
     BisulfiteReverseReverseComplement = 6
 
     #aggiungere metodi per fare il reverse, il complement etc e restituire il valore corretto
-    #ma anche no!
+    #ma anche no!\ 
 
 
 
