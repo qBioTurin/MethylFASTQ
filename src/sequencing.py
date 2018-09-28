@@ -9,6 +9,7 @@ import multiprocessing as mp
 from timeit import default_timer as timer
 import enum
 import sys
+import math
 
 import dna
 
@@ -136,35 +137,54 @@ class ChromosomeSequencer(object):
         print("{} fragments found: {} bp. Elapsed time {}".format(len(self.__fragments), self.__stats.nbases, tot_time), flush=True)
 
 
+    def load_balancing(self, num_workers):
+
+        totsize = sum([e-b for _, b, e in self.__fragments])
+        average = int(totsize / num_workers)
+
+        fragments = list()
+
+#        print("Total size: {}\nExpected size per process: {}\n".format(totsize, average))
+
+        for i, (sequence, begin, end) in enumerate(self.__fragments, 1):
+            size = end-begin
+            print("Fragment [{} - {}] of size {} bp".format(begin, end, size))
+
+            if size > average: #suddivido il lavoro
+                num_pieces = math.ceil(size / average)
+                prev, curr = 0, average #offset di inizio e fine
+
+                print(">> {} pieces: ".format(num_pieces), end="")
+
+                for n in range(num_pieces):
+                    subseq = (sequence[prev:curr], begin+prev, begin+curr)
+                    fragments.append(subseq)
+
+                    print("[{} - {}] ".format(subseq[1], subseq[2]), end="")
+
+#                    print("\tsubjob {} from {} to {}".format(n+1, begin+prev, begin+curr))
+                    prev, curr = curr, curr + average
+
+                    if curr > size:
+                        curr = size
+                print()
+            else:
+                fragments.append((sequence, begin, end))
+
+        self.__fragments = sorted(fragments, key=lambda x: x[2]-x[1], reverse=True)
+
     def sequencing(self, params):
+        self.load_balancing(params.num_processes)
+
+        self.__fragments = [{"seq": seq, "from": begin, "to": end, "params": params} \
+                            for seq, begin, end in self.__fragments]
+
         queue = mp.Queue() #comunicazione tra processi figli e padre
-
-        #ordino frammenti in modo decrescente rispetto alla loro lunghezza
-        self.__fragments = [{"seq": x[0], "from": x[1], "to": x[2], "params": params} for x in self.__fragments]
-        self.__fragments.sort(key=lambda el: el["to"] - el["from"], reverse=True)
-
-        print([x["to"] - x["from"] for x in self.__fragments])
-
-        single_end = params.seq_mode == "single_end"
-
-        #inizializzo i processi con i relativi input: parametri vari (frammento e offset) + coda + indice per il join
-        processes = [mp.Process(target=self.create_reads, name="methylPIPPO-{}".format(index), args=(param, params.seq_mode, (index, queue))) \
-                        for index, param in enumerate(self.__fragments)]
-
-
         num_input = len(self.__fragments)   #numero di input da processare
         num_process = params.num_processes  #numero massimo di processi da utilizzare
+        single_end = params.seq_mode == "single_end" #variabile di merda, ma vbb
 
-        curr = 0        #indice del prossimo processo da startare
-        curr_exec = 0   #numero processi attualmente in esecuzione
-
-        #starto primi processi
-        while curr_exec < min(num_input, num_process):
-            processes[curr].start()
-            curr += 1
-            curr_exec += 1
-
-
+        #apro i file di output
         output_filename = self.__get_output_filename(params)
 
         if single_end:
@@ -175,6 +195,20 @@ class ChromosomeSequencer(object):
 
         meth_file = open("{}.ch3".format(output_filename), "a")
         csv_meth = csv.writer(meth_file, delimiter="\t")
+
+        #inizializzo i processi con i relativi input:
+        #parametri: (frammento e offset) + coda + indice per il join
+        processes = [mp.Process(target=self.create_reads, name="methylPIPPO-{}".format(index), args=(param, params.seq_mode, (index, queue))) \
+                        for index, param in enumerate(self.__fragments)]
+
+        curr = 0        #indice del prossimo processo da startare
+        curr_exec = 0   #numero processi attualmente in esecuzione
+
+        #starto primi processi
+        while curr_exec < min(num_input, num_process):
+            processes[curr].start()
+            curr += 1
+            curr_exec += 1
 
         #finchè tutti i processi non sono stati eseguiti e non hanno terminato...
         while not (curr == num_input and curr_exec == 0):
@@ -211,7 +245,7 @@ class ChromosomeSequencer(object):
                         csv_meth.writerow(record)
                     else:
                         self.__stats.increment_cytosines(dsize)
-        else: #fine while -> chiudo file
+        else: #fine while -> chiudo i file
             meth_file.close()
 
             if single_end:
@@ -219,9 +253,6 @@ class ChromosomeSequencer(object):
             else:
                 fastq_file1.close()
                 fastq_file2.close()
-
-        for p in processes:
-            p.join()
 
         return self.__stats
 
@@ -237,12 +268,18 @@ class ChromosomeSequencer(object):
         sequence = data["seq"]
         params = data["params"]
         index, queue = index_queue
+        pid = os.getpid()
 
-        print("processing fragment from {} to {}".format(data["from"], data["to"]))
+        print("<Process {}>: starting sequencing [{} - {}]".format(pid, offset_begin, offset_end), flush=True)
+        start = timer()
+
         fs = FragmentSequencer(self.__chromoId, sequence, offset_begin, offset_end, \
                                 params, queue=queue)
-
         fs.single_end_sequencing() if seq_mode == "single_end" else fs.paired_end_sequencing()
+
+        elapsed = format_time(timer() - start)
+
+        print("<Process {}>: sequencing [{} - {}] terminated in {}".format(pid, offset_begin, offset_end, elapsed), flush=True)
 
         queue.put(index)
 

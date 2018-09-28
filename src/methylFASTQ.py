@@ -6,7 +6,8 @@ import os, pathlib
 import random, string
 import csv
 from Bio import SeqIO
-from sequencing import ChromosomeSequencer, Stats
+import sequencing as seq
+#from sequencing import ChromosomeSequencer, Stats
 from timeit import default_timer as timer
 
 
@@ -14,41 +15,25 @@ class MethylFASTQ(object):
     def __init__(self, args):
         self.params = self.__parse_args(args)
         self.regions = self.__load_regions(args.regions)
-        self.__stats = Stats()
+        self.__stats = seq.Stats()
 
 
 
     def run(self):
         print("Chosen mode: {}".format("targeted" if self.regions else "WGBS"))
 
+        start = timer()
+
         self.__run_targeted() if self.regions else self.__run_wgbs()
+
+        elapsed = timer() - start
 
         print("Num reads: {}\nNum C: {}\nNum bases: {}\n".format(self.__stats.nreads, self.__stats.ncytosines, self.__stats.nbases))
 
-        #rimuovo directory dei file temporanei
-#        print("Rimuovo directory {}".format(args.temp_dir))
-#        os.rmdir(args.temp_dir)
+        print("Elapsed time: {}".format(seq.format_time(elapsed)))
+
 
     def __parse_args(self, args):
-        # if args.temp_dir is None:
-        #     temp_dir = os.fspath("{}/.cache/methylfastq/".format(pathlib.Path.home()))
-        #
-        #     #creo directory principale, se non presente
-        #     if not os.path.exists(temp_dir):
-        #         print("MethylFASTQ temporary files will be written in {}".format(temp_dir))
-        #         os.makedirs(temp_dir)
-        #
-        #     #creo directory per la run corrente
-        #     while True:
-        #         random_stuff = "".join(random.choices(string.ascii_lowercase, k=2))
-        #         if not os.path.exists(temp_dir + random_stuff):
-        #             temp_dir += random_stuff + "/"
-        #             os.makedirs(temp_dir)
-        #             print("Temporary files of current run will be written in {}".format(temp_dir))
-        #             break
-        #
-        #     args.temp_dir = temp_dir
-
         #check esistenza directory output
         if not os.path.exists(args.output_path):
             print("Output directory {} does not exist.".format(args.output_path), end=" ")
@@ -70,7 +55,7 @@ class MethylFASTQ(object):
             if self.params.chr is None or fasta_record.id in self.params.chr:
                 print("Sequencing {}: {} bp".format(fasta_record.id, len(fasta_record)), flush=True)
 
-                stats = ChromosomeSequencer(fasta_record).sequencing(self.params)
+                stats = seq.ChromosomeSequencer(fasta_record).sequencing(self.params)
                 self.__stats.update(stats)
 
 
@@ -81,7 +66,7 @@ class MethylFASTQ(object):
                 curr_chr = self.regions[fasta_record.id]
                 print("{} --> {}".format(fasta_record.id, curr_chr))
 
-                stats = ChromosomeSequencer(fasta_record, target_regions=curr_chr).sequencing(self.params)
+                stats = seq.ChromosomeSequencer(fasta_record, target_regions=curr_chr).sequencing(self.params)
                 self.__stats.update(stats)
 
     def __load_regions(self, filename):
@@ -117,7 +102,7 @@ class MethylFASTQ(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="methyl-fastq")
 
-    #I/O parameters: input, output and temporary directories
+    #I/O parameters: input, output
     parser.add_argument("-i", "--in", dest="fasta_file", metavar="fasta-file",
                         action="store", type=str, required=True,
                         help="Path of the FASTA file containing the genome to be sequenced.")
@@ -125,8 +110,6 @@ if __name__ == "__main__":
                         action="store", type=str, required=True,
                         help="Path of output files (.fastq & .cpg)")
 
-#    parser.add_argument("-t", "--temp", dest="temp_dir", metavar="temporary-directory",
-#                        action="store", type=str, help="Path to store temporary files")
     #sequencing mode and library mode
     parser.add_argument("--seq", dest="seq_mode",
                         choices=["single_end", "paired_end"], default="single_end",
