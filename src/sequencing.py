@@ -55,6 +55,39 @@ class Cytosine(object):
         self.__ncov += 1
 
 
+class Stats(object):
+    def __init__(self):
+        self.__num_reads = 0
+        self.__covered_cs = 0
+        self.__bp_sequenced = 0
+
+    @property
+    def nreads(self):
+        return self.__num_reads
+
+    @property
+    def ncytosines(self):
+        return self.__covered_cs
+
+    @property
+    def nbases(self):
+        return self.__bp_sequenced
+
+    def increment_reads(self, nr):
+        self.__num_reads += nr
+
+    def increment_cytosines(self, nc):
+        self.__covered_cs += nc
+
+    def increment_bps(self, nbp):
+        self.__bp_sequenced += nbp
+
+    def update(self, stats):
+        self.increment_reads(stats.nreads)
+        self.increment_cytosines(stats.ncytosines)
+        self.increment_bps(stats.nbases)
+
+
 class ChromosomeSequencer(object):
     """ ChromosomeSequencer legge un cromosoma da un file FASTA e
     scrive su un file FASTQ le read prodotte dal sequenziamento.
@@ -69,22 +102,24 @@ class ChromosomeSequencer(object):
         chromosome_sequence = str(chromosome.seq).lower()
 
         self.__chromoId = chromosome.id
-        self.__genome_size = len(chromosome.seq)
+#        self.__genome_size = len(chromosome.seq)
         self.__fragments = [(chromosome_sequence[begin:end], begin, end) for (begin, end) in target_regions]
+        self.__stats = Stats()
 
         if len(target_regions) == 0:
             #WGBS option
             print("Parsing {} sequence... ".format(chromosome.id), end="", flush=True)
         #    chromosome = str(chromosome.seq).lower()
+            chr_size = len(chromosome.seq)
 
             #get salient fragments
             start, i = timer(), 0
 
-            while i < self.__genome_size:
-                while i < self.__genome_size and chromosome_sequence[i] == 'n':
+            while i < chr_size:
+                while i < chr_size and chromosome_sequence[i] == 'n':
                     i += 1
                 begin = i
-                while i < self.__genome_size and chromosome_sequence[i] != 'n':
+                while i < chr_size and chromosome_sequence[i] != 'n':
                     i += 1
 
                 t = (chromosome_sequence[begin:i], begin, i)
@@ -93,42 +128,28 @@ class ChromosomeSequencer(object):
                 last = self.__fragments.pop()
                 if last[1] < last[2]:
                     self.__fragments.append(last)
-            print("{} fragments found in {}.".format(len(self.__fragments), format_time(timer() - start)), flush=True)
 
+            tot_time = format_time(timer() - start)
 
+        #sommo dimensioni intervalli
+        self.__stats.increment_bps(sum([e-b for _, b, e in self.__fragments]))
+        print("{} fragments found: {} bp. Elapsed time {}".format(len(self.__fragments), self.__stats.nbases, tot_time), flush=True)
 
-
-    def sequencing2(self, params):
-        """Sequenzia i frammenti individuati dal costruttore parallelizzando il
-         lavoro con n processi. """
-
-        self.__fragments = [{"seq": x[0], "from": x[1], "to": x[2], "params": params} for x in self.__fragments]
-        seq_function, merge_function = (self.single_end_reads, self.merge_se_file)\
-                                        if params.seq_mode == "single_end"\
-                                        else (self.paired_end_reads, self.merge_pe_file)
-
-        start = timer()
-        with mp.Pool(params.num_processes) as p:
-            p.map(seq_function, self.__fragments)
-        print("Sequencing of {} completed in {}".format(self.__chromoId, format_time(timer()-start)))
-
-        num_reads = merge_function(params)
-        num_c = self.merge_ch3(params)
-        print()
-
-        return num_reads, num_c
 
     def sequencing(self, params):
         queue = mp.Queue() #comunicazione tra processi figli e padre
 
+        #ordino frammenti in modo decrescente rispetto alla loro lunghezza
         self.__fragments = [{"seq": x[0], "from": x[1], "to": x[2], "params": params} for x in self.__fragments]
+        self.__fragments.sort(key=lambda el: el["to"] - el["from"], reverse=True)
+
+        print([x["to"] - x["from"] for x in self.__fragments])
 
         single_end = params.seq_mode == "single_end"
 
-        #assegno funzione di sequencing
-        seq_function = self.single_end_reads if single_end else self.paired_end_reads
-        #inizializzo i processi con i relativi input: parametri vari (frammento e offset) + coda
-        processes = [mp.Process(target=seq_function, args=(param, queue)) for param in self.__fragments]
+        #inizializzo i processi con i relativi input: parametri vari (frammento e offset) + coda + indice per il join
+        processes = [mp.Process(target=self.create_reads, name="methylPIPPO-{}".format(index), args=(param, params.seq_mode, (index, queue))) \
+                        for index, param in enumerate(self.__fragments)]
 
 
         num_input = len(self.__fragments)   #numero di input da processare
@@ -158,26 +179,38 @@ class ChromosomeSequencer(object):
         #finchè tutti i processi non sono stati eseguiti e non hanno terminato...
         while not (curr == num_input and curr_exec == 0):
             val = queue.get()
+            tval = type(val)
 
-            if val is None: #segnale di terminazione di un processo
+            if tval is int: #segnale di terminazione di un processo
+                processes[val].join()
+
                 if curr < num_input:
                     processes[curr].start()
                     curr += 1
                 else:
                     curr_exec -= 1
-            elif type(val) is tuple:
-                if val[0] == "fastq_se":
-                    for record in val[1]:
-                        SeqIO.write(record, fastq_file, "fastq")
+            elif tval is tuple:
+                tag, data = val
+                dsize = len(data)
 
-                if val[0] == "fastq_pe":
-                    for read1, read2 in val[1]:
+                if tag == "fastq_se":
+                    for record in data:
+                        SeqIO.write(record, fastq_file, "fastq")
+                    else:
+                        self.__stats.increment_reads(dsize)
+
+                elif tag == "fastq_pe":
+                    for read1, read2 in data:
                         SeqIO.write(read1, fastq_file1, "fastq")
                         SeqIO.write(read2, fastq_file2, "fastq")
+                    else:
+                        self.__stats.increment_reads(dsize)
 
-                elif val[0] == "ch3":
-                    for record in val[1]:
+                elif tag == "ch3":
+                    for record in data:
                         csv_meth.writerow(record)
+                    else:
+                        self.__stats.increment_cytosines(dsize)
         else: #fine while -> chiudo file
             meth_file.close()
 
@@ -190,7 +223,7 @@ class ChromosomeSequencer(object):
         for p in processes:
             p.join()
 
-        return 0, 0 #sommare dimensioni liste restituite!!
+        return self.__stats
 
     def __get_output_filename(self, params):
         fasta = "".join(params.fasta_file.split("/")[-1].split(".")[:-1])
@@ -198,139 +231,34 @@ class ChromosomeSequencer(object):
         dir_nondir = "dir" if params.lib_mode == "directional" else "undir"
         return "{}/{}_{}_f{}r{}_{}".format(params.output_path, fasta, se_pe, params.fragment_size, params.read_length, dir_nondir)
 
-    def merge_se_file(self, params):
-        """ """
-        output_filename = self.__get_output_filename(params)
-        num_reads = 0
-        print("Writing final fastq file...", flush=True, end="")
 
-        with open("{}.fastq".format(output_filename), "a") as out:
-            for e in self.__fragments:
-                input_name = "{}/{}.seq".format(params.temp_dir, e["from"])
-        #        print("-reading {}".format(input_name), flush=True)
-
-                try:
-                    with open(input_name, "rb") as input_file:
-                        try:
-                            while True:
-                                record = pickle.load(input_file)
-                                SeqIO.write(record, out, "fastq")
-                                num_reads += 1
-                        except EOFError:
-                            print(".", flush=True, end="")
-                    os.remove(input_name)
-                except FileNotFoundError as e:
-                    pass
-
-        return num_reads
-
-    def merge_pe_file(self, params):
-        """Genera i file FASTQ del sequenziamento paired-end leggendo i file binari temporanei
-        prodotti nello step di sequenziamento. """
-
-        num_reads = 0
-        output_filename = self.__get_output_filename(params)
-        print("Writing final fastq files...", flush=True, end="")
-
-        with open("{}_R1.fastq".format(output_filename), "a") as r1, open("{}_R2.fastq".format(output_filename), "a") as r2:
-            for e in self.__fragments:
-                input_name = "{}/{}.seq".format(params.temp_dir, e["from"])
-
-                try:
-                    with open(input_name, "rb") as input_file:
-                        try:
-                            while True:
-                                record = pickle.load(input_file)
-                                SeqIO.write(record[0], r1, "fastq")
-                                SeqIO.write(record[1], r2, "fastq")
-
-                                num_reads += 1
-                        except EOFError:
-                            print(".", flush=True, end="") #done!!
-                    os.remove(input_name)
-                except FileNotFoundError as e:
-                    pass
-
-        return num_reads
-
-    def merge_ch3(self, params):
-        """Genera un unico file contenente i dati di metilazione delle citosine
-        unendo i file relativi ai diversi frammenti prodotti dai vari processi
-        nello step di sequenziamento"""
-
-        output_filename = self.__get_output_filename(params)
-        num_c = 0
-        print("\nWriting final methylation file...", flush=True, end="")
-
-        with open("{}.ch3".format(output_filename), "a") as out:
-            csvwriter = csv.writer(out, delimiter=" ")
-
-            for e in self.__fragments:
-                input_name = "{}/{}.ch3".format(params.temp_dir, e["from"])
-
-                with open(input_name) as infile:
-                    csvreader = csv.reader(infile, delimiter=" ")
-                    for row in csvreader:
-                        csvwriter.writerow(row)
-                        num_c += 1
-
-                os.remove(input_name)
-                print(".", flush=True, end="") #done!!
-
-        return num_c
-
-    def single_end_reads(self, data, queue):
-#        params = data["params"]
+    def create_reads(self, data, seq_mode, index_queue):
         offset_begin, offset_end = data["from"], data["to"]
         sequence = data["seq"]
         params = data["params"]
-
-
-        print("processing fragment from {} to {}".format(data["from"], data["to"]))
-        fs = FragmentSequencer(self.__chromoId, sequence, offset_begin, offset_end, \
-                                self.__genome_size, params, queue=queue)
-        fs.single_end_sequencing()
-
-        queue.put(None) #segnale terminazione processo
-
-#        coda.put(None) #segnale terminazione processo
-
-#        seq = FragmentSequencer(self.__chromoId, data["seq"], data["from"], data["to"], self.__genome_size, params)
-#        seq.single_end_sequencing()
-#        print(".", flush=True, end="")
-
-    def paired_end_reads(self, data, queue):
-        #        params = data["params"]
-        offset_begin, offset_end = data["from"], data["to"]
-        sequence = data["seq"]
-        params = data["params"]
+        index, queue = index_queue
 
         print("processing fragment from {} to {}".format(data["from"], data["to"]))
         fs = FragmentSequencer(self.__chromoId, sequence, offset_begin, offset_end, \
-                                self.__genome_size, params, queue=queue)
-        fs.paired_end_sequencing()
+                                params, queue=queue)
 
-        queue.put(None)
-#        coda = data["queue"]
+        fs.single_end_sequencing() if seq_mode == "single_end" else fs.paired_end_sequencing()
 
+        queue.put(index)
 
-#        print(type(queue))
-#        seq = FragmentSequencer(self.__chromoId, data["seq"], data["from"], data["to"], self.__genome_size, params)
-#        seq.paired_end_sequencing()
-#        print(".", flush=True, end="")
 
 
 class FragmentSequencer(object):
     """..."""
 
-    def __init__(self, chr_id, sequence, begin_seq, end_seq, gsize, seqparams, queue):
+    def __init__(self, chr_id, sequence, begin_seq, end_seq, seqparams, queue):
         #informazioni sulla sequenza
         self.__chromoId = chr_id
         self.__sequence = sequence
-        self.__genome_size = gsize
+#        self.__genome_size = gsize
         #posizione del frammento nel genoma
         self.__offset_forward = begin_seq
-        self.__offset_reverse = gsize - end_seq
+#        self.__offset_reverse = gsize - end_seq
         #dimensione buffer + parametri vari
         self.__buffer_size = seqparams.buffer_size
         self.__seqparams = seqparams
@@ -416,7 +344,7 @@ class FragmentSequencer(object):
     #            self.__persist_record(reads)
                 reads.clear()
 
-        cinfo = self.__format_methylation() #cytosines information
+        cinfo = self.__format_methylation()
         self.__queue.put(("ch3", cinfo))
 
 #        self.__persist_methylation()
@@ -472,7 +400,7 @@ class FragmentSequencer(object):
         #        self.__persist_record(reads)
                 reads.clear()
 
-        cinfo = self.__format_methylation() #cytosines information
+        cinfo = self.__format_methylation()
         self.__queue.put(("ch3", cinfo))
     #    self.__persist_methylation()
 
@@ -525,30 +453,6 @@ class FragmentSequencer(object):
         self.__sequence = "".join([random.sample("actg", 1)[0] if random.uniform(0, 1) < self.__seqparams.snp_rate else base\
                                    for base in self.__sequence])
 
-    ###################### Persistenza file temporanei ######################
-
-    def __persist_record(self, record_list):
-        """Accoda i record contenenti nella lista @record_list nel file binario @file_name"""
-
-        filename = "{}/{}.seq".format(self.__seqparams.temp_dir, self.__offset_forward)
-
-        with open(filename, "ab") as output:
-            for record in record_list:
-                pickle.dump(record, output, pickle.HIGHEST_PROTOCOL)
-
-    def __persist_methylation(self):
-        """Write a file with a line for each cythosine. Each line contains:
-        - chromosome id, position, strand, cythosine context
-        - times C is methylated, total times C appears in read file, ratio"""
-
-        ch3_file = "{}/{}.ch3".format(self.__seqparams.temp_dir, self.__offset_forward)
-
-        with open(ch3_file, "w") as of:
-            csvfile = csv.writer(of, delimiter="\t")
-
-            for position, cytosine in self.__cytosines.items():
-                ratio = 0 if cytosine.ncov == 0 else cytosine.nmeth / cytosine.ncov
-                csvfile.writerow([self.__chromoId, abs(self.__offset_forward+position), cytosine.strand, cytosine.context, cytosine.nmeth, cytosine.ncov, ratio])
 
     def __format_methylation(self):
         """ Returns a list containing all the information about cytosines """

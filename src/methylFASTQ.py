@@ -6,7 +6,7 @@ import os, pathlib
 import random, string
 import csv
 from Bio import SeqIO
-from sequencing import ChromosomeSequencer
+from sequencing import ChromosomeSequencer, Stats
 from timeit import default_timer as timer
 
 
@@ -14,9 +14,8 @@ class MethylFASTQ(object):
     def __init__(self, args):
         self.params = self.__parse_args(args)
         self.regions = self.__load_regions(args.regions)
+        self.__stats = Stats()
 
-        self.num_reads = 0
-        self.num_c = 0
 
 
     def run(self):
@@ -24,7 +23,7 @@ class MethylFASTQ(object):
 
         self.__run_targeted() if self.regions else self.__run_wgbs()
 
-        print("Num reads: {}\nNum C: {}".format(self.num_reads, self.num_c))
+        print("Num reads: {}\nNum C: {}\nNum bases: {}\n".format(self.__stats.nreads, self.__stats.ncytosines, self.__stats.nbases))
 
         #rimuovo directory dei file temporanei
 #        print("Rimuovo directory {}".format(args.temp_dir))
@@ -59,6 +58,9 @@ class MethylFASTQ(object):
         if args.fragment_size == 0:
             args.fragment_size = args.read_length
 
+        if args.num_processes < 1:
+            raise ValueError("Number of processes must be greater than zero.")
+
         return args
 
     def __run_wgbs(self):
@@ -68,9 +70,8 @@ class MethylFASTQ(object):
             if self.params.chr is None or fasta_record.id in self.params.chr:
                 print("Sequencing {}: {} bp".format(fasta_record.id, len(fasta_record)), flush=True)
 
-                nr, nc = ChromosomeSequencer(fasta_record).sequencing(self.params)
-                self.num_reads += nr
-                self.num_c += nc
+                stats = ChromosomeSequencer(fasta_record).sequencing(self.params)
+                self.__stats.update(stats)
 
 
 
@@ -80,9 +81,8 @@ class MethylFASTQ(object):
                 curr_chr = self.regions[fasta_record.id]
                 print("{} --> {}".format(fasta_record.id, curr_chr))
 
-                nr, nc = ChromosomeSequencer(fasta_record, target_regions=curr_chr).sequencing(self.params)
-                self.num_reads += nr
-                self.num_c += nc
+                stats = ChromosomeSequencer(fasta_record, target_regions=curr_chr).sequencing(self.params)
+                self.__stats.update(stats)
 
     def __load_regions(self, filename):
         target_regions = None
@@ -125,8 +125,8 @@ if __name__ == "__main__":
                         action="store", type=str, required=True,
                         help="Path of output files (.fastq & .cpg)")
 
-    parser.add_argument("-t", "--temp", dest="temp_dir", metavar="temporary-directory",
-                        action="store", type=str, help="Path to store temporary files")
+#    parser.add_argument("-t", "--temp", dest="temp_dir", metavar="temporary-directory",
+#                        action="store", type=str, help="Path to store temporary files")
     #sequencing mode and library mode
     parser.add_argument("--seq", dest="seq_mode",
                         choices=["single_end", "paired_end"], default="single_end",
@@ -160,23 +160,28 @@ if __name__ == "__main__":
     parser.add_argument("--processes", dest="num_processes", metavar="num-processes",
                         action="store", type=int, default=2,
                         help="Number of processes to be used during sequencing step")
+
     parser.add_argument("--buffer", dest="buffer_size", metavar="buffer-size",
-                        action="store", type=int, default=10**4,
-                        help="Buffer size of each processes during sequencing step")
+                        action="store", type=int, default=10**6,
+                        help="Buffer size of each process during sequencing step")
     #methylation probabilities
     parser.add_argument("--cg", dest="p_cg", metavar="CG-methylation-probability",
                         action="store", type=float, default=1.0,
                         help="Methylation probability in CG context")
+
     parser.add_argument("--chg", dest="p_chg", metavar="CHG-methylation-probability",
                         action="store", type=float, default=1.0,
                         help="Methylation probability in CHG context")
+
     parser.add_argument("--chh", dest="p_chh", metavar="CHH-methylation-probability",
                         action="store", type=float, default=1.0,
                         help="Methylation probability in CHH context")
+
     #sequencing error and snp probabilities
     parser.add_argument("--snp", dest="snp_rate", metavar="snp-probability",
                         action="store", type=float, default=0,
                         help="Probability to set a SNP")
+
     parser.add_argument("--error", dest="error_rate", metavar="sequencing-error-probability",
                         action="store", type=float, default=0,
                         help="Probability to set a sequencing error")
@@ -184,6 +189,7 @@ if __name__ == "__main__":
     parser.add_argument("--maxq", dest="max_quality", metavar="max-phred-score",
                         action="store", type=int, default=40,
                         help="Max phred score in the reads")
+
     parser.add_argument("--minq", dest="min_quality", metavar="min-phred-score",
                         action="store", type=int, default=10,
                         help="Min phred score in the reads (not implemented)") #not implemented yet!!
