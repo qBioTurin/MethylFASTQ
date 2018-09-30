@@ -7,7 +7,7 @@ import random, string
 import csv
 from Bio import SeqIO
 import sequencing as seq
-#from sequencing import ChromosomeSequencer, Stats
+
 from timeit import default_timer as timer
 
 
