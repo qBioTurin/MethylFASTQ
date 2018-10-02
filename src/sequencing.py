@@ -141,12 +141,12 @@ class ChromosomeSequencer(object):
         average = int(totsize / num_workers)
 
         fragments = list()
-
-#        print("Total size: {}\nExpected size per process: {}\n".format(totsize, average))
+        #sort per visualizzare i frammenti in modo non caotico
+        self.__fragments.sort(key=lambda x: x[2]-x[1], reverse=True)
 
         for i, (sequence, begin, end) in enumerate(self.__fragments, 1):
             size = end-begin
-            print("Fragment [{} - {}] of size {} bp".format(begin, end, size))
+            print("{}. Fragment [{} - {}] of size {} bp".format(i, begin, end, size))
 
             if size > average: #suddivido il lavoro
                 num_pieces = math.ceil(size / average)
@@ -170,6 +170,9 @@ class ChromosomeSequencer(object):
                 fragments.append((sequence, begin, end))
 
         self.__fragments = sorted(fragments, key=lambda x: x[2]-x[1], reverse=True)
+
+        for seq, begin, end in self.__fragments:
+            print(begin, end, end-begin)
 
 
     def consumer(self, num_jobs, params, queue):
@@ -231,6 +234,100 @@ class ChromosomeSequencer(object):
     def sequencing(self, params):
         self.load_balancing(params.num_processes)
 
+#        self.__fragments = [{"seq": seq, "from": begin, "to": end, "params": params} \
+#                            for seq, begin, end in self.__fragments]
+
+        queue = mp.Queue() #comunicazione tra processi figli e padre
+        num_input = len(self.__fragments)   #numero di input da processare
+        num_process = params.num_processes  #numero massimo di processi da utilizzare
+        single_end = params.seq_mode == "single_end" #variabile di merda, ma vbb
+
+        input_data = [{
+                "seq": seq,
+                "offset": (begin, end),
+                "params": params,
+                "queue": queue,
+                "process_id": index
+            }
+            for index, (seq, begin, end) in enumerate(self.__fragments)
+        ]
+
+        #apro i file di output
+        output_filename = self.__get_output_filename(params)
+
+        if single_end:
+            fastq_file = open("{}.fastq".format(output_filename), "a")
+        else:
+            fastq_file1 = open("{}_R1.fastq".format(output_filename), "a")
+            fastq_file2 = open("{}_R2.fastq".format(output_filename), "a")
+
+        meth_file = open("{}.ch3".format(output_filename), "a")
+        csv_meth = csv.writer(meth_file, delimiter="\t")
+
+        #inizializzo i processi con i relativi input:
+        #parametri: (frammento e offset) + coda + indice per il join
+    #    processes = [mp.Process(target=self.create_reads, name="methylPIPPO-{}".format(index), args=(param, params.seq_mode, (index, queue))) \
+    #                    for index, param in enumerate(self.__fragments)]
+        processes = [mp.Process(target=self.create_reads, args=(data,)) for data in input_data]
+
+        curr = 0        #indice del prossimo processo da startare
+        curr_exec = 0   #numero processi attualmente in esecuzione
+
+        #starto primi processi
+        while curr_exec < min(num_input, num_process):
+            processes[curr].start()
+            curr += 1
+            curr_exec += 1
+
+        #finchè tutti i processi non sono stati eseguiti e non hanno terminato...
+        while not (curr == num_input and curr_exec == 0):
+            val = queue.get()
+            tval = type(val)
+
+            if tval is int: #segnale di terminazione di un processo
+                processes[val].join()
+
+                if curr < num_input:
+                    processes[curr].start()
+                    curr += 1
+                else:
+                    curr_exec -= 1
+            elif tval is tuple:
+                tag, data = val
+                dsize = len(data)
+
+                if tag == "fastq_se":
+                    for record in data:
+                        SeqIO.write(record, fastq_file, "fastq")
+                    else:
+                        self.__stats.increment_reads(dsize)
+
+                elif tag == "fastq_pe":
+                    for read1, read2 in data:
+                        SeqIO.write(read1, fastq_file1, "fastq")
+                        SeqIO.write(read2, fastq_file2, "fastq")
+                    else:
+                        self.__stats.increment_reads(dsize)
+
+                elif tag == "ch3":
+                    for record in data:
+                        csv_meth.writerow(record)
+                    else:
+                        self.__stats.increment_cytosines(dsize)
+        else: #fine while -> chiudo i file
+            meth_file.close()
+
+            if single_end:
+                fastq_file.close()
+            else:
+                fastq_file1.close()
+                fastq_file2.close()
+
+        return self.__stats
+
+    def __sequencing(self, params):
+        self.load_balancing(params.num_processes)
+
         queue = mp.Manager().Queue()
 
         ###### TERRRIBBBBILEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE!!!!!
@@ -249,7 +346,7 @@ class ChromosomeSequencer(object):
         consumer_thread.start()
 
         with mp.Pool(params.num_processes) as pool:
-            pool.map(self.create_reads, input_data)
+            pool.map(func=self.create_reads, iterable=input_data, chunksize=1)
 
         consumer_thread.join()
 
@@ -269,10 +366,11 @@ class ChromosomeSequencer(object):
         offset_begin, offset_end = input_process["offset"]
         queue = input_process["queue"]
         params = input_process["params"]
+        process_id = input_process["process_id"] #new
 
         pid = os.getpid()
 
-        print("<Process {}>: starting sequencing [{} - {}]".format(pid, offset_begin, offset_end), flush=True)
+        print("<Process {}>: starting sequencing [{} - {}]: {} bp".format(pid, offset_begin, offset_end, offset_end-offset_begin), flush=True)
         start = timer()
 
         fs = FragmentSequencer(self.__chromoId, sequence, offset_begin, offset_end, \
@@ -283,7 +381,7 @@ class ChromosomeSequencer(object):
 
         print("<Process {}>: sequencing [{} - {}] terminated in {}".format(pid, offset_begin, offset_end, elapsed), flush=True)
 
-        queue.put(0)
+        queue.put(process_id)
 
 
 

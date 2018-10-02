@@ -145,7 +145,7 @@ if __name__ == "__main__":
                         help="Number of processes to be used during sequencing step")
 
     parser.add_argument("--buffer", dest="buffer_size", metavar="buffer-size",
-                        action="store", type=int, default=10**6,
+                        action="store", type=int, default=10**5,
                         help="Buffer size of each process during sequencing step")
     #methylation probabilities
     parser.add_argument("--cg", dest="p_cg", metavar="CG-methylation-probability",
