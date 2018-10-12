@@ -1,6 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+## MethylFASTQ generates artificial bisulfite data in FASTQ format.
+## Copyright (C) 2018, Nicola Licheri (nicola.licheri@gmail.com)
+#
+## This file is part of MethylFASTQ.
+#
+## MethylFASTQ is free software: you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation, either version 3 of the License, or
+## (at your option) any later version.
+#
+## MethylFASTQ is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+#
+## You should have received a copy of the GNU General Public License
+## along with MethylFASTQ.  If not, see <http://www.gnu.org/licenses/>.
+
 from Bio import SeqIO
 from io import StringIO
 import random
@@ -17,7 +35,7 @@ class strand(enum.Enum):
     BisulfiteReverseReverseComplement = 6
 
     #aggiungere metodi per fare il reverse, il complement etc e restituire il valore corretto
-    #ma anche no!\ 
+    #ma anche no!\
 
 
 
