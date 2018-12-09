@@ -1,27 +1,33 @@
 # Methyl-Seq
 
-Bla bla bla
+MethylFASTQ is a Python tool to simulate bisulfite sequencing data in a
+highly customizable way. 
 
 ## Features
 
-* Scelta dei cromosomi da sequenziare
-* Scelta della lunghezza dei frammenti
-* Scelta della lunghezza delle read
-* Scelta del tipo di library: single-end o paired-end
-* Scelta della modalità di library: directional o undirectional
-* Metilazione basata sul contesto della citosina
+MethylFASTQ produces two kind of files.
+* FASTQ file(s) that contains the sequenced reads. The id of each FASTQ record identifies the true mapping position of that read.
+* methylation call file that contains the true methylation call of each sequenced cytosine
+
+It allows to simulate both whole genome bisulfite sequencing (WGBS) and targeted bisulfite sequencing experiments.
 
 ## Options
 
-* --in: path del file FASTA contenente il genoma di riferimento
-* --out: path + prefisso dei file di output (.cpg e .fastq)
-* --meth: path del file .cpg
-* --chr: nomi dei cromosomi da sequenziare
-* --library: tipologia di library: single-end o paired-end
-* --mode: modalità di library: direzionale o non direzionale
-* --fragment: lunghezza dei frammenti
-* --read: lunghezza delle read
-
-## TODO
-1. dataset 1: mutazioni da tecnica + metilazione
-2. dataset 2: SNP (mutazioni su reference) + mutazioni da tecnica + metilazione
+* -i fasta-file : path of the FASTA file containing the genome to be sequenced
+* -o output-file-path : directory where to save the artificial dataset
+* --seq {single_end,paired_end} : selected sequencing mode
+* --lib {directional,non_directional} : selected library mode
+* --chr chromosome-id [chromosome-id ...] : list of FASTA id of chromosomes to be sequenced
+* --regions target-regions : path of the .bed file containing chromosome regions to be sequenced
+* --coverage coverage : selected depth of coverage
+* --fragment fragment-size : size of produced fragments in fragmentation step
+* --read read-length : length of produced reads
+* --processes num-processes : maximum number of producer processes
+* --buffer buffer-size :  buffer size of a single process
+* --cg CG-methylation-probability : probability that a C in CG context is methylated
+* --chg CHG-methylation-probability : probability that a C in CHG context is methylated (H = {A, C, T})
+* --chh CHH-methylation-probability : probability that a C in CHH context is methylated
+* --snp snp-probability : probability that a single nucleotide is a SNP (spontaneous mutation)
+* --error sequencing-error-probability : probability that a single nucleotide is a sequencing error
+* --maxq max-phred-score : maximum quality score in the produced reads
+* --minq min-phred-score : minimum phred score in the produced reads (not implemented yet)
