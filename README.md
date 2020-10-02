@@ -31,3 +31,13 @@ It allows to simulate both whole genome bisulfite sequencing (WGBS) and targeted
 * --error sequencing-error-probability : probability that a single nucleotide is a sequencing error
 * --maxq max-phred-score : maximum quality score in the produced reads
 * --minq min-phred-score : minimum phred score in the produced reads (not implemented yet)
+
+## Targeted sequencing 
+
+If you want to use targeted sequencing mode, you have to provide a region file describing the chromosome regions to be sequenced. 
+The region file must be a TAB-delimited file with 3+ columns describing
+* the chromosome ID 
+* the starting bp of the region to be sequenced
+* the last  bp of the region to be sequenced 
+
+Check the region file in the example folder. 
