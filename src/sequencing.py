@@ -149,9 +149,9 @@ class ChromosomeSequencer(object):
 
             tot_time = format_time(timer() - start)
 
-        #sommo dimensioni intervalli
-        self.__stats.increment_bps(sum([e-b for _, b, e in self.__fragments]))
-        print("{} fragments found: {} bp. Elapsed time {}".format(len(self.__fragments), self.__stats.nbases, tot_time), flush=True)
+            #sommo dimensioni intervalli
+            self.__stats.increment_bps(sum([e-b for _, b, e in self.__fragments]))
+            print("{} fragments found: {} bp. Elapsed time {}".format(len(self.__fragments), self.__stats.nbases, tot_time), flush=True)
 
 
     def load_balancing(self, num_workers):
